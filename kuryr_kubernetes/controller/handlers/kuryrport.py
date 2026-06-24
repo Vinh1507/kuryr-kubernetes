@@ -150,6 +150,10 @@ class KuryrPortHandler(k8s_base.ResourceEventHandler):
             'kind': 'Pod',
             'metadata': kuryrport_crd['metadata'].copy(),
         }
+        # NOTE: metadata.uid here is the KuryrPort CRD's own uid, not the
+        # original Pod's uid. Drivers (e.g. release_vif's ownership check)
+        # rely on metadata.uid matching the Pod, so restore the real one.
+        pod['metadata']['uid'] = kuryrport_crd['spec']['podUid']
         # No need to try to delete the finalizer from the pod later, as
         # pod's gone.
         del pod['metadata']['finalizers']

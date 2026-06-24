@@ -23,6 +23,7 @@ from oslo_log import log as logging
 from kuryr_kubernetes import clients
 from kuryr_kubernetes import config
 from kuryr_kubernetes import constants
+from kuryr_kubernetes.controller.drivers import fixed_ip
 from kuryr_kubernetes.controller.drivers import nested_vif
 from kuryr_kubernetes.controller.drivers import utils
 from kuryr_kubernetes import exceptions as k_exc
@@ -38,19 +39,57 @@ ACTIVE_TIMEOUT = 90
 CONF = cfg.CONF
 
 
-class NestedVlanPodVIFDriver(nested_vif.NestedPodVIFDriver):
+class NestedVlanPodVIFDriver(fixed_ip.FixedIPMixin,
+                             nested_vif.NestedPodVIFDriver):
     """Manages ports for nested-containers using VLANs to provide VIFs."""
 
     def request_vif(self, pod, project_id, subnets, security_groups):
         os_net = clients.get_network_client()
+        pod_name = pod['metadata']['name']
         parent_port = self._get_parent_port(pod)
         trunk_id = self._get_trunk_id(parent_port)
 
+        resolution = self._resolve_fixed_ip(pod, subnets)
+        if resolution and resolution.get('port'):
+            reserved = resolution['port']
+            pod_uid = utils.get_device_id(pod)
+            if (reserved.device_id and reserved.device_id != pod_uid and
+                    reserved.status == kl_const.PORT_STATUS_ACTIVE):
+                LOG.error('Reserved port %s is already actively bound to a '
+                          'different pod (device_id=%s). Refusing to '
+                          'hijack it for pod %s.', reserved.id,
+                          reserved.device_id, pod_name)
+                raise k_exc.ResourceNotReady(pod)
+            os_net.update_port(
+                reserved.id,
+                device_owner=kl_const.DEVICE_OWNER,
+            )
+            vlan_id = self._add_subport(trunk_id, reserved.id)
+            os_net.update_port(
+                reserved.id,
+                device_id=pod_uid,
+            )
+            return ovu.neutron_to_osvif_vif_nested_vlan(
+                reserved, subnets, vlan_id)
+
         rq = self._get_port_request(pod, project_id, subnets, security_groups)
+        if resolution:
+            namespace = pod['metadata']['namespace']
+            rq['name'] = f"{namespace}_{pod_name}"
+            if 'create_ip' in resolution:
+                subnet_id = next(iter(subnets))
+                rq['fixed_ips'] = [{'subnet_id': subnet_id,
+                                    'ip_address': resolution['create_ip']}]
+            if self._tag_on_creation:
+                rq['tags'] = (list(rq.get('tags', [])) +
+                             [fixed_ip.RESERVED_PORT_TAG])
+
         port = os_net.create_port(**rq)
         self._check_port_binding([port])
         if not self._tag_on_creation:
             utils.tag_neutron_resources([port])
+            if resolution:
+                self._mark_port_reserved(port)
         vlan_id = self._add_subport(trunk_id, port.id)
 
         return ovu.neutron_to_osvif_vif_nested_vlan(port, subnets, vlan_id)
@@ -159,6 +198,23 @@ class NestedVlanPodVIFDriver(nested_vif.NestedPodVIFDriver):
 
     def release_vif(self, pod, vif, project_id=None):
         os_net = clients.get_network_client()
+
+        try:
+            port = os_net.get_port(vif.id)
+        except os_exc.ResourceNotFound:
+            LOG.debug('Port %s already gone, nothing to release.', vif.id)
+            return
+
+        is_reserved = fixed_ip.RESERVED_PORT_TAG in (port.tags or [])
+        if is_reserved:
+            pod_uid = pod['metadata'].get('uid')
+            if port.device_id and pod_uid and port.device_id != pod_uid:
+                LOG.warning('Reserved port %s now belongs to a different '
+                            'pod (device_id=%s), skipping release for '
+                            'stale pod %s without touching the trunk.',
+                            vif.id, port.device_id, pod_uid)
+                return
+
         parent_port = self._get_parent_port(pod)
         trunk_id = self._get_trunk_id(parent_port)
         try:
@@ -166,6 +222,22 @@ class NestedVlanPodVIFDriver(nested_vif.NestedPodVIFDriver):
         except os_exc.NotFoundException:
             pass
         self._release_vlan_id(vif.vlan_id)
+
+        if is_reserved and not self._is_statefulset_decommissioning(pod):
+            LOG.debug('Unbinding reserved port %s instead of deleting.',
+                      vif.id)
+            os_net.update_port(
+                vif.id,
+                device_owner=fixed_ip.RESERVED_DEVICE_OWNER,
+                device_id='',
+            )
+            return
+
+        if is_reserved:
+            LOG.debug('Owning StatefulSet for pod %s is gone or scaled '
+                      'down past this ordinal, releasing port %s for '
+                      'good.', pod['metadata'].get('name'), vif.id)
+
         os_net.delete_port(vif.id)
 
     def _get_port_request(self, pod, project_id, subnets, security_groups,
