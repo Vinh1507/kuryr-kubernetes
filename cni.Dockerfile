@@ -8,7 +8,7 @@ RUN GO111MODULE=auto go build -o /go/bin/kuryr-cni ./kuryr_cni/pkg/*
 FROM quay.io/centos/centos:stream9
 LABEL authors="Antoni Segura Puimedon<toni@kuryr.org>, Michał Dulko<mdulko@redhat.com>"
 
-ARG UPPER_CONSTRAINTS_FILE="https://releases.openstack.org/constraints/upper/master"
+ARG UPPER_CONSTRAINTS_FILE="https://releases.openstack.org/constraints/upper/2024.1"
 ARG OSLO_LOCK_PATH=/var/kuryr-lock
 ARG RDO_REPO=https://repos.fedorapeople.org/repos/openstack/archived/openstack-antelope/rdo-release-antelope-2.el9s.noarch.rpm
 

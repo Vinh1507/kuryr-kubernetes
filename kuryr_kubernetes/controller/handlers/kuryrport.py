@@ -27,6 +27,7 @@ from kuryr_kubernetes.controller.drivers import utils as driver_utils
 from kuryr_kubernetes.controller.managers import prometheus_exporter as exp
 from kuryr_kubernetes import exceptions as k_exc
 from kuryr_kubernetes.handlers import k8s_base
+from kuryr_kubernetes.controller.handlers import pod_annotations
 from kuryr_kubernetes import utils
 
 
@@ -149,6 +150,10 @@ class KuryrPortHandler(k8s_base.ResourceEventHandler):
             'kind': 'Pod',
             'metadata': kuryrport_crd['metadata'].copy(),
         }
+        # NOTE: metadata.uid here is the KuryrPort CRD's own uid, not the
+        # original Pod's uid. Drivers (e.g. release_vif's ownership check)
+        # rely on metadata.uid matching the Pod, so restore the real one.
+        pod['metadata']['uid'] = kuryrport_crd['spec']['podUid']
         # No need to try to delete the finalizer from the pod later, as
         # pod's gone.
         del pod['metadata']['finalizers']
@@ -356,6 +361,9 @@ class KuryrPortHandler(k8s_base.ResourceEventHandler):
             self.k8s.add_event(pod, 'ExceptionOnKPUpdate', f'There was k8s '
                                f'client exception on updating corresponding '
                                f'KuryrPort CRD: {ex}', 'Warning')
+            return True
+
+        pod_annotations.annotate_pod_if_ips(self.k8s, pod, vifs)
         return True
 
     def _update_kuryrport_crd(self, kuryrport_crd, vifs):

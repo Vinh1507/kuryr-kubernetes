@@ -25,6 +25,9 @@ class DefaultPodSubnetDriver(base.PodSubnetsDriver):
 
     def get_subnets(self, pod, project_id):
         subnet_id = config.CONF.neutron_defaults.pod_subnet
+        pod_labels = pod.get('metadata', {}).get('labels', {})
+        if pod_labels.get('vpc_subnet_id'):
+            subnet_id = pod['metadata']['labels']['vpc_subnet_id']
 
         if not subnet_id:
             # NOTE(ivc): this option is only required for
