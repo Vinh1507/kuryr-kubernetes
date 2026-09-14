@@ -51,6 +51,12 @@ class VIFHandler(k8s_base.ResourceEventHandler):
         if utils.is_host_network(pod):
             return
 
+        if not utils.is_pod_handled(pod):
+            LOG.debug("Pod %s has no %s annotation, ignoring it.",
+                      pod['metadata']['name'],
+                      constants.K8S_ANNOTATION_SUBNET_ID)
+            return
+
         pod_name = pod['metadata']['name']
         if utils.is_pod_completed(pod):
             LOG.debug("Pod %s has completed execution, "

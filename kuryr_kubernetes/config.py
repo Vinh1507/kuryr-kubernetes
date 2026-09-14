@@ -94,6 +94,13 @@ k8s_opts = [
     cfg.StrOpt('token_file',
                help=_("The token to talk to the k8s API"),
                default='/var/run/secrets/kubernetes.io/serviceaccount/token'),
+    cfg.BoolOpt('annotated_pods_only',
+                help=_("Only handle Pods that carry the "
+                       "'openstack.org/kuryr-subnet-id' annotation, ignoring "
+                       "every other Pod (no KuryrPort, no Neutron port). "
+                       "Useful when Kuryr is used as a secondary CNI and "
+                       "only selected Pods should get an OpenStack port."),
+                default=False),
     cfg.StrOpt('pod_project_driver',
                help=_("The driver to determine OpenStack project for pod "
                       "ports (default or annotation)"),

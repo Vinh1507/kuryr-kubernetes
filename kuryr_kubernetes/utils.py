@@ -666,6 +666,22 @@ def is_host_network(pod):
     return pod['spec'].get('hostNetwork', False)
 
 
+def get_pod_subnet_annotation(pod):
+    annotations = pod.get('metadata', {}).get('annotations') or {}
+    return annotations.get(constants.K8S_ANNOTATION_SUBNET_ID)
+
+
+def is_pod_handled(pod):
+    """Checks if Kuryr should provide networking for the Pod.
+
+    With [kubernetes]annotated_pods_only enabled, only Pods annotated with
+    'openstack.org/kuryr-subnet-id' are handled.
+    """
+    if not CONF.kubernetes.annotated_pods_only:
+        return True
+    return bool(get_pod_subnet_annotation(pod))
+
+
 def is_pod_static(pod):
     """Checks if Pod is static by comparing annotations."""
     try:

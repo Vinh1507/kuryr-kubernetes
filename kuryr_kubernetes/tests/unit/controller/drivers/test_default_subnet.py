@@ -17,6 +17,7 @@ from unittest import mock
 
 from oslo_config import cfg
 
+from kuryr_kubernetes import constants as k_const
 from kuryr_kubernetes.controller.drivers import default_subnet
 from kuryr_kubernetes.tests import base as test_base
 
@@ -28,7 +29,7 @@ class TestDefaultPodSubnetDriver(test_base.TestCase):
     def test_get_subnets(self, m_cfg, m_get_subnet):
         subnet_id = mock.sentinel.subnet_id
         subnet = mock.sentinel.subnet
-        pod = mock.sentinel.pod
+        pod = {'metadata': {}}
         project_id = mock.sentinel.project_id
         m_cfg.neutron_defaults.pod_subnet = subnet_id
         m_get_subnet.return_value = subnet
@@ -40,8 +41,24 @@ class TestDefaultPodSubnetDriver(test_base.TestCase):
         m_get_subnet.assert_called_once_with(subnet_id)
 
     @mock.patch('kuryr_kubernetes.utils.get_subnet')
+    @mock.patch('kuryr_kubernetes.config.CONF')
+    def test_get_subnets_from_annotation(self, m_cfg, m_get_subnet):
+        subnet = mock.sentinel.subnet
+        pod = {'metadata': {
+            'annotations': {k_const.K8S_ANNOTATION_SUBNET_ID: 'annotated'}}}
+        project_id = mock.sentinel.project_id
+        m_cfg.neutron_defaults.pod_subnet = 'default'
+        m_get_subnet.return_value = subnet
+        driver = default_subnet.DefaultPodSubnetDriver()
+
+        subnets = driver.get_subnets(pod, project_id)
+
+        self.assertEqual({'annotated': subnet}, subnets)
+        m_get_subnet.assert_called_once_with('annotated')
+
+    @mock.patch('kuryr_kubernetes.utils.get_subnet')
     def test_get_subnets_not_set(self, m_get_subnet):
-        pod = mock.sentinel.pod
+        pod = {'metadata': {}}
         project_id = mock.sentinel.project_id
         driver = default_subnet.DefaultPodSubnetDriver()
 
@@ -70,7 +87,7 @@ class TestDefaultServiceSubnetDriver(test_base.TestCase):
 
     @mock.patch('kuryr_kubernetes.utils.get_subnet')
     def test_get_subnets_not_set(self, m_get_subnet):
-        service = mock.sentinel.service
+        service = {'metadata': {}}
         project_id = mock.sentinel.project_id
         driver = default_subnet.DefaultPodSubnetDriver()
         self.assertRaises(cfg.RequiredOptError, driver.get_subnets,
