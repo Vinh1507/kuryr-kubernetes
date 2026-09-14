@@ -575,3 +575,23 @@ class TestUtils(test_base.TestCase):
         os_net.get_port.return_value = port_obj
 
         self.assertEqual(ip_address, utils.get_parent_port_ip(port_id))
+
+    def test_is_pod_handled_option_disabled(self):
+        pod = {'metadata': {}}
+        self.assertTrue(utils.is_pod_handled(pod))
+
+    def test_is_pod_handled_annotated(self):
+        cfg.CONF.set_override('annotated_pods_only', True, group='kubernetes')
+        self.addCleanup(cfg.CONF.clear_override, 'annotated_pods_only',
+                        group='kubernetes')
+        pod = {'metadata': {'annotations': {
+            k_const.K8S_ANNOTATION_SUBNET_ID: 'subnet-id'}}}
+        self.assertTrue(utils.is_pod_handled(pod))
+
+    def test_is_pod_handled_not_annotated(self):
+        cfg.CONF.set_override('annotated_pods_only', True, group='kubernetes')
+        self.addCleanup(cfg.CONF.clear_override, 'annotated_pods_only',
+                        group='kubernetes')
+        self.assertFalse(utils.is_pod_handled({'metadata': {}}))
+        self.assertFalse(utils.is_pod_handled(
+            {'metadata': {'annotations': {'foo': 'bar'}}}))

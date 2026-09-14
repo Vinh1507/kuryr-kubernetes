@@ -16,6 +16,7 @@
 from unittest import mock
 
 from os_vif import objects as os_obj
+from oslo_config import cfg
 
 from kuryr_kubernetes import constants as k_const
 from kuryr_kubernetes.controller.drivers import base as drivers
@@ -124,6 +125,23 @@ class TestVIFHandler(test_base.TestCase):
         self._request_vif.assert_not_called()
         self._request_additional_vifs.assert_not_called()
         self._activate_vif.assert_not_called()
+
+    @mock.patch('kuryr_kubernetes.clients.get_kubernetes_client')
+    @mock.patch('kuryr_kubernetes.utils.is_pod_completed')
+    @mock.patch('kuryr_kubernetes.controller.drivers.utils.get_kuryrport')
+    def test_on_present_not_annotated(self, m_get_kuryrport,
+                                      m_is_pod_completed, m_get_k8s_client):
+        cfg.CONF.set_override('annotated_pods_only', True, group='kubernetes')
+        self.addCleanup(cfg.CONF.clear_override, 'annotated_pods_only',
+                        group='kubernetes')
+        self._pod['metadata']['annotations'] = {}
+
+        h_vif.VIFHandler.on_present(self._handler, self._pod)
+
+        m_is_pod_completed.assert_not_called()
+        self._handler.k8s.add_finalizer.assert_not_called()
+        m_get_kuryrport.assert_not_called()
+        self._handler._add_kuryrport_crd.assert_not_called()
 
     @mock.patch('kuryr_kubernetes.controller.drivers.utils.get_k8s_resource')
     @mock.patch('kuryr_kubernetes.utils.is_pod_completed')

@@ -24,10 +24,8 @@ class DefaultPodSubnetDriver(base.PodSubnetsDriver):
     """Provides subnet for Pod port based on a configuration option."""
 
     def get_subnets(self, pod, project_id):
-        subnet_id = config.CONF.neutron_defaults.pod_subnet
-        pod_labels = pod.get('metadata', {}).get('labels', {})
-        if pod_labels.get('vpc_subnet_id'):
-            subnet_id = pod['metadata']['labels']['vpc_subnet_id']
+        subnet_id = (utils.get_pod_subnet_annotation(pod) or
+                     config.CONF.neutron_defaults.pod_subnet)
 
         if not subnet_id:
             # NOTE(ivc): this option is only required for
